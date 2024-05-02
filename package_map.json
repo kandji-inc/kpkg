@@ -1,0 +1,35 @@
+{
+  "sh.brew.homebrew": {
+    "prod_name": "Homebrew",
+    "test_name": "Homebrew (Testing)",
+    "ss_category": "Productivity",
+    "test_category": "Utilities"
+  },
+  "com.amazon.aws.cli2": {
+    "prod_name": "Amazon AWS CLI"
+  },
+  "com.cisco.pkg.anyconnect.vpn": {
+    "prod_name": "Cisco AnyConnect",
+    "test_name": "AnyConnect (Testing)"
+  },
+  "com.microsoft.wdav": {
+    "prod_name": "MSFT Defender",
+    "test_name": "Defender (Testing)"
+  },
+  "com.canva.CanvaDesktop": {
+    "prod_name": "Canva",
+    "ss_category": "Productivity"
+  },
+  "com.coteditor.CotEditor": {
+    "test_name": "CotEditor (Testing)",
+    "test_category": "Utilities"
+  },
+  "com.DigiDNA.iMazingProfileEditorMac": {
+    "prod_name": "iMazing Profile Editor",
+    "ss_category": "Utilities"
+  },
+  "org.mozilla.firefox": {
+    "prod_name": "Firefox (Browser)",
+    "ss_category": "Productivity"
+  }
+}
