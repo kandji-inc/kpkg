@@ -208,12 +208,17 @@ class Configurator:
                     category.get("id") for category in self.self_service if category.get("name") == ss_name
                 )
             except StopIteration:
-                # Set category id to default (None check performed later)
-                ss_assignment = (
-                    next(category.get("id") for category in self.self_service if category.get("name") == ss_default)
-                    if ss_default
-                    else None
-                )
+                log.warning(f"Provided category '{ss_name}' not found in Self Service!") if ss_name is not None else None
+                try:
+                    # Set category id to default (None check performed later)
+                    ss_assignment = (
+                        next(category.get("id") for category in self.self_service if category.get("name") == ss_default)
+                        if ss_default
+                        else None
+                    )
+                except StopIteration:
+                    log.warning(f"Default category '{ss_default}' not found in Self Service!")
+                    ss_assignment = None
             # Only reassign/override if not already set
             if ss_type == "prod":
                 if ss_name is not None:

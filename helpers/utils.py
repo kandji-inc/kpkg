@@ -464,6 +464,8 @@ class Utilities:
 
         def _pkg_expand_cleanup():
             """Cleans up temp dir and unmounts DMG if necessary"""
+            if not hasattr(self, "dmg_is_mounted"):
+                return True
             if self.dmg_is_mounted is True:
                 _dmg_detach(self.tmp_dmg_mount)
             # rm dir + exploded PKG when done
