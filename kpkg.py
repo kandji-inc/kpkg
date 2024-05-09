@@ -367,7 +367,7 @@ class KPKG(Configurator, Utilities):
                 # Main func for processing Cr/Up ops
                 self.kandji_customize_create_update()
                 # Clean up copied PKG if it exists
-                if self.copied_pkg_path is not None:
+                if hasattr(self, "copied_pkg_path") and self.copied_pkg_path is not None:
                     try:
                         os.remove(self.copied_pkg_path)
                     except PermissionError:
