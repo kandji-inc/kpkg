@@ -1,0 +1,87 @@
+name: Bug Report
+description: Create a report to help improve the product
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: "## Report issues with Kandji's standalone tool, kpkg"
+  - type: checkboxes
+    id: nodupes
+    attributes:
+      label: New Bug Check
+      description: Search for [similar bug reports](../issues) before submitting
+      options:
+        - label: _I have searched the repo and confirm this is a new bug report_
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Please provide a clear and concise description of the issue
+      placeholder: |
+        When I run...
+        The result is...
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduce
+      description: Steps to reproduce the issue
+      placeholder: |
+        kpkg -p /path/to/installer.dmg -n "NAME" -d ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What is the expected behavior?
+      placeholder: |
+        I would expect...
+    validations:
+      required: true
+  - type: textarea
+    id: response
+    attributes:
+      label: kpkg response
+      description: Output of the `kpkg` command containing the error/exception (redacting sensitive information)
+      render: python
+      placeholder: |
+        Traceback (most recent call last):
+          File "kpkg", line 1, in <module>
+          File "kpkg.py", line 1, in <module>
+          File "kpkg.py", line 1, in <module>
+        ImportError: cannot import name 'kpkg'
+    validations:
+      required: true
+  - type: input
+    id: kpkgvers
+    attributes:
+      label: kpkg version
+      description: Output of `kpkg --version`
+      placeholder: "Kandji Packages: 1.0.1"
+    validations:
+      required: true
+  - type: textarea
+    id: macOSvers
+    attributes:
+      label: macOS version
+      description: Output of `/usr/bin/sw_vers`
+      render: bash
+      placeholder: |
+        ProductName:        macOS
+        ProductVersion:     14.4.1
+        BuildVersion:       23E224
+    validations:
+      required: true
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Info
+      description: Additional info you want to provide such as logs, system info, screenshots, etc.
+    validations:
+      required: false
