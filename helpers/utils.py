@@ -30,6 +30,7 @@
 #######################
 
 import difflib
+import hashlib
 import json
 import logging
 import os
@@ -75,6 +76,15 @@ def source_from_brew(brew_name):
     download_path = next(out for out in brew_out.splitlines() if "downloaded" in out.lower()).split(": ")[-1]
     log.info(f"Downloaded '{brew_name}' to '{download_path}'")
     return download_path
+
+
+def sha256_file(file_path):
+    """Returns a SHA256 hash for a provided file"""
+    sha256_hash = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            sha256_hash.update(chunk)
+    return sha256_hash.hexdigest()
 
 
 class Utilities:
@@ -129,7 +139,10 @@ class Utilities:
                 case "presign":
                     self.s3_generated_req = response.json()
                 case "upload":
+                    self.pkg_uploaded = True
                     log.info(f"Successfully uploaded '{self.pkg_name}'!")
+                    # Initial sleep allowing S3 to process upload
+                    time.sleep(5)
                 case "create" | "update":
                     custom_app_id = response.json().get("id")
                     custom_name = response.json().get("name")
@@ -472,10 +485,14 @@ class Utilities:
             try:
                 self.temp_dir.cleanup()
             except OSError:
-                log.error("Failed to cleanup temp dir")
+                log.debug("Attempting DMG unmount and cleaning up...")
                 _dmg_detach(self.tmp_dmg_mount)
-                log.error("Attempted DMG unmount and trying once more...")
-                self.temp_dir.cleanup()
+                try:
+                    self.temp_dir.cleanup()
+                except OSError:
+                    log.error(f"Unable to clean up temp dir at {self.temp_dir.name}!")
+                    return False
+            log.debug(f"Cleaned up temp dir at {self.temp_dir.name}")
             return True
 
         ##############
@@ -653,7 +670,8 @@ class Utilities:
                 f"Found Duplicates of Custom App {self.custom_app_name}",
                 f"{slack_body}",
             )
-            raise Exception
+            # Return None to bypass remaining steps
+            return None
         try:
             return next(iter(app_picker))
         except StopIteration:

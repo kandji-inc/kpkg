@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Created 03/05/24; NRJA
 # Updated 04/15/24; NRJA
+# Updated 05/21/24; NRJA
 ################################################################################################
 # License Information
 ################################################################################################
@@ -41,12 +42,11 @@ import os
 import platform
 import shutil
 import sys
-import time
 from pathlib import Path
 
 import requests
 from helpers.configs import Configurator
-from helpers.utils import Utilities, source_from_brew
+from helpers.utils import Utilities, sha256_file, source_from_brew
 
 #############################
 ######### ARGUMENTS #########
@@ -191,6 +191,7 @@ class KPKG(Configurator, Utilities):
         self.arg_dry_run = args.dry
         self.arg_create_new = args.create
         self.pkg_path = None
+        self.pkg_uploaded = False
         if self.arg_pkg_path is None:
             log.fatal("No PKG path provided (use flag -p/--pkg)")
             sys.exit(1)
@@ -211,6 +212,10 @@ class KPKG(Configurator, Utilities):
             form_data = {"name": self.pkg_name}
             response = requests.post(post_url, headers=self.auth_headers, params=self.params, json=form_data)
             return self._validate_response(response, "presign")
+
+        if self.pkg_uploaded is True:
+            log.info("PKG already uploaded... Continuing")
+            return True
 
         if not _generate_s3_req():
             return False
@@ -234,7 +239,6 @@ class KPKG(Configurator, Utilities):
         # Assign initial data with known vars
         create_data = {
             "name": self.custom_app_name,
-            "file_key": self.s3_key,
             "install_type": self.install_type,
             "install_enforcement": self.custom_app_enforcement,
         }
@@ -252,6 +256,9 @@ class KPKG(Configurator, Utilities):
             else:
                 # Otherwise assign as prod app
                 create_data["self_service_category_id"] = self.ss_category_id
+        if self.upload_custom_app() is not True:
+            return False
+        create_data["file_key"] = self.s3_key
         # Set POST URL
         post_url = self.api_custom_apps_url
         if self.dry_run is True:
@@ -281,20 +288,38 @@ class KPKG(Configurator, Utilities):
         if self.custom_app_name is not None:
             lib_item_dict = self._find_lib_item_match()
 
+        # Returns None if multiple matches, False if no matches
+        if lib_item_dict is None:
+            return False
         if lib_item_dict is False:
             if self.default_auto_create is True:
                 return self.create_custom_app()
             else:
-                log.error("Could not locate existing custom app to update — auto-create is disabled")
-                log.error("Raising exception...")
-                self._restore_audit() if self.custom_app_enforcement == "continuously_enforce" else True
-                raise Exception
+                log.error("Could not locate existing custom app to update")
+                log.error("Auto-create is disabled — skipping remaining steps")
+                return False
 
-        # Create body with updated package location once uploaded
-        update_data = {"file_key": self.s3_key}
-        # Assign existing LI UUID and enforcement
+        # Assign existing LI name, UUID, enforcement, and sha256
+        lib_item_name = lib_item_dict.get("name")
         lib_item_uuid = lib_item_dict.get("id")
         lib_item_enforcement = lib_item_dict.get("install_enforcement")
+        lib_item_shasum = lib_item_dict.get("sha256")
+
+        # Get sha256 of local media
+        local_media_shasum = sha256_file(self.pkg_path)
+
+        log.info(f"Proceeding to update existing custom app '{lib_item_name}'")
+
+        if local_media_shasum == lib_item_shasum:
+            log.warning(f"Pending upload '{self.pkg_name}' identical to existing '{lib_item_name}' installer")
+            log.info("Skipping upload/update...\n")
+            return True
+
+        if self.upload_custom_app() is not True:
+            return False
+
+        # Update body with updated package location once uploaded
+        update_data = {"file_key": self.s3_key}
         # Validate enforcement of existing LI
         if lib_item_enforcement == "continuously_enforce":
             # If existing LI enforcement differs from set value, override var to Kandji value
@@ -316,7 +341,7 @@ class KPKG(Configurator, Utilities):
         patch_url = os.path.join(self.api_custom_apps_url, lib_item_uuid)
         if self.dry_run is True:
             log.info(
-                f"DRY RUN: Would update Custom App '{self.custom_app_name}' with PATCH to '{patch_url}' and fields '{update_data}'"
+                f"DRY RUN: Would update Custom App '{lib_item_name}' with PATCH to '{patch_url}' and fields '{update_data}'"
             )
             return True
         response = requests.patch(patch_url, headers=self.auth_headers, params=self.params, json=update_data)
@@ -351,29 +376,26 @@ class KPKG(Configurator, Utilities):
         ###################
         #### MAIN EXEC ####
         ###################
-        if self.upload_custom_app() is True:
-            # Initial sleep allowing S3 to process upload
-            time.sleep(5)
-            # Iterate over dict specifying app type and name
-            for key, value in self.app_names.items():
-                if key == "test_name":
-                    self.custom_app_name = value
-                    self.test_app, self.prod_app = True, False
-                elif key == "prod_name":
-                    self.custom_app_name = value
-                    self.test_app, self.prod_app = False, True
-                else:
-                    self.test_app, self.prod_app = False, False
-                # Main func for processing Cr/Up ops
-                self.kandji_customize_create_update()
-                # Clean up copied PKG if it exists
-                if hasattr(self, "copied_pkg_path") and self.copied_pkg_path is not None:
-                    try:
-                        os.remove(self.copied_pkg_path)
-                    except PermissionError:
-                        shutil.rmtree(self.copied_pkg_path)
-                # Clean up temp dir used for PKG/DMG expansion
-                self._expand_pkg_get_info(cleanup=True)
+        # Iterate over dict specifying app type and name
+        for key, value in self.app_names.items():
+            if key == "test_name":
+                self.custom_app_name = value
+                self.test_app, self.prod_app = True, False
+            elif key == "prod_name":
+                self.custom_app_name = value
+                self.test_app, self.prod_app = False, True
+            else:
+                self.test_app, self.prod_app = False, False
+            # Main func for processing Cr/Up ops
+            self.kandji_customize_create_update()
+            # Clean up copied PKG if it exists
+        if hasattr(self, "copied_pkg_path") and self.copied_pkg_path is not None:
+            try:
+                os.remove(self.copied_pkg_path)
+            except PermissionError:
+                shutil.rmtree(self.copied_pkg_path)
+        # Clean up temp dir used for PKG/DMG expansion
+        self._expand_pkg_get_info(cleanup=True)
 
 
 ##############
@@ -381,7 +403,6 @@ class KPKG(Configurator, Utilities):
 ##############
 
 if __name__ == "__main__":
-
     if os.geteuid() == 0:
         log.fatal("kpkg should NOT be run as superuser! Exiting...")
         sys.exit(1)

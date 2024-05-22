@@ -1,10 +1,10 @@
-#!/bin/zsh
+#!/bin/zsh -f
 #
 # Audit script used to enforce Kandji custom app; programmatically populated during kpkg runtime
-# Searches for install via populated bundle identifier/app name or from receipt DB given package ID 
+# Searches for install via populated bundle identifier/app name or from receipt DB given package ID
 # If not found, immediately triggers custom app installation (regardless of any configured delays)
 # If found, determines if version enforcement due; if so, triggers install if installed < required
-# If app is open in foreground, prompts user to close app with one-time option to defer one hour 
+# If app is open in foreground, prompts user to close app with one-time option to defer one hour
 
 ##############################
 ########## VARIABLES #########
@@ -40,7 +40,7 @@ ENFORCEMENT_DELAY_PLIST="/Library/Preferences/io.kandji.enforcement.delay.plist"
 ##############################################
 # Checks for defined BUNDLE_ID and attempts to
 # locate using mdfind; failing that, searches
-# using find in common dirs for Info.plist 
+# using find in common dirs for Info.plist
 # with matching CFBundleIdentifier
 # Globals:
 #   BUNDLE_ID
@@ -85,7 +85,7 @@ function find_app_by_name() {
 ##############################################
 # Checks for installed app by installed_path
 # If missing, triggers install with exit 1
-# If present, checks/assigns info_plist_path 
+# If present, checks/assigns info_plist_path
 # and assigns CFBundleShortVersionString value
 # from Info.plist as installed_version
 # Globals:
@@ -96,7 +96,7 @@ function find_app_by_name() {
 #   info_plist_path
 #   installed_version
 # Returns:
-#   Exit 1 if app install missing 
+#   Exit 1 if app install missing
 ##############################################
 function validate_install() {
     echo "Checking for '${IDENTIFIER}' install..."
@@ -125,7 +125,7 @@ function validate_install() {
 #   pkg_info_plist
 #   installed_pkg_version
 # Returns:
-#   Exit 1 if app install missing 
+#   Exit 1 if app install missing
 ##############################################
 function validate_pkginfo() {
     echo "Checking for '${PKG_ID}' receipt..."
@@ -167,7 +167,7 @@ function enforcement_check() {
 
 ##############################################
 # Checks for running app by installed_path or
-# BUNDLE_ID and assigns lsappinfo values 
+# BUNDLE_ID and assigns lsappinfo values
 # Checks if app is running in foreground and
 # prompts user to close if so
 # Globals:
@@ -202,7 +202,7 @@ function check_blocking_proc() {
         fi
         return 0
     fi
-    
+
     # If open, assign values from lsappinfo
     ls_bundle_name=$(grep "CFBundleName" <<< "${app_open_check}" | cut -d '"' -f4)
     ls_display_name=$(grep "LSDisplayName" <<< "${app_open_check}" | cut -d '"' -f4)
@@ -278,7 +278,7 @@ function prompt_close_app() {
         giving up after 300
     end tell
 EOF
-)
+    )
     exitc=$?
 
     if grep -q "got an error: Application" <<< ${applescript_out}; then
@@ -342,7 +342,7 @@ function check_delay() {
 }
 
 ##############################################
-# Adds enforcement delay for app and version 
+# Adds enforcement delay for app and version
 # to plist at ENFORCEMENT_DELAY_PLIST
 # Globals:
 #   ENFORCEMENT_DELAY_PLIST
@@ -445,8 +445,9 @@ function validate_version() {
 function main() {
 
     # Set ID for logging to APP_NAME, PKG_ID, or BUNDLE_ID
+    # shellcheck disable=SC2299
     IDENTIFIER="${${APP_NAME:-$PKG_ID}:-$BUNDLE_ID}"
-    
+
     if [[ -z ${BUNDLE_ID} && -z ${APP_NAME} ]]; then
         echo "Neither BUNDLE_ID nor APP_NAME defined"
         if [[ -n ${PKG_ID} ]]; then

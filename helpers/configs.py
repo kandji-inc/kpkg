@@ -107,12 +107,12 @@ class Configurator:
             for ident, apps in self.package_map.items():
                 # Once matching PKG ID found, assign and exit loop
                 if ident == self.map_id:
+                    log.info(f"Located matching map value '{self.map_id}' from PKG/DMG")
                     self.app_names = apps
                     break
             if not self.app_names:
                 log.warning(f"Package map enabled, but no match found for ID '{self.map_id}'!")
                 log.info("Will use defaults if no args passed")
-            log.info(f"Located matching map value '{self.map_id}' from PKG/DMG")
         self.map_ss_category = self.app_names.get("ss_category")
         self.map_test_category = self.app_names.get("test_category")
 
@@ -208,7 +208,9 @@ class Configurator:
                     category.get("id") for category in self.self_service if category.get("name") == ss_name
                 )
             except StopIteration:
-                log.warning(f"Provided category '{ss_name}' not found in Self Service!") if ss_name is not None else None
+                log.warning(
+                    f"Provided category '{ss_name}' not found in Self Service!"
+                ) if ss_name is not None else None
                 try:
                     # Set category id to default (None check performed later)
                     ss_assignment = (
@@ -336,6 +338,8 @@ class Configurator:
         # If no name returned from above, set PKG basename before the first - as name
         self.pkg_path_name = None if self.install_name else os.path.basename(self.pkg_path).split("-")[0]
         if lookup_again is True:
+            self._populate_package_map()
+            self._set_defaults_enforcements()
             self._set_custom_name()
 
     def populate_from_config(self):

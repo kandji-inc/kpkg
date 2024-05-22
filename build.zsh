@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/bin/zsh 
 # Created 03/14/24; NRJA
 ################################################################################################
 # License Information
@@ -182,7 +182,7 @@ function lipo_check() {
 function write_postinstall() {
 
     /bin/cat > "${dir}/Scripts/postinstall" <<"EOF"
-#!/bin/zsh
+#!/bin/zsh -f
 
 user=$(stat -f%Su /dev/console)
 user_dir=$(dscl /Local/Default -read "/Users/${user}" NFSHomeDirectory | /usr/bin/cut -d ":" -f2 | /usr/bin/xargs)
