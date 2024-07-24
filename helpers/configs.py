@@ -33,6 +33,7 @@ import json
 import logging
 import os
 import plistlib
+import re
 import sys
 
 import requests
@@ -285,6 +286,11 @@ class Configurator:
 
         # Grab auth token for Kandji API interactions
         kandji_token = self._retrieve_token(self.kandji_token_name)
+        if kandji_token is None:
+            log.fatal(
+                f"ERROR: Could not retrieve token value from key {self.kandji_token_name}! Run 'kpkg-setup' and try again"
+            )
+            sys.exit(1)
         # Set headers/params for API calls
         self.auth_headers = {"Authorization": f"Bearer {kandji_token}", "Content-Type": "application/json"}
         self.params = {"source": "kpkg"}
@@ -315,9 +321,10 @@ class Configurator:
             raise OSError
         if self.install_type == "image":
             shell_cmd = f"diskutil image info -plist '{self.pkg_path}'"
-            diskutil_out = self._run_command(shell_cmd)
+            diskutil_out = self._run_command(shell_cmd, nostderr=True)
             if diskutil_out is False:
                 log.warning("Could not retrieve diskutil info for provided DMG")
+                log.warning("Pending EULA may be blocking mount or invalid DMG")
                 self.install_name = None
             else:
                 diskutil_plist_out = plistlib.loads(diskutil_out.encode())
@@ -335,8 +342,22 @@ class Configurator:
             except (IndexError, AttributeError):
                 pass
             self.install_name = pkginfo_out if pkginfo_out is not False else None
-        # If no name returned from above, set PKG basename before the first - as name
-        self.pkg_path_name = None if self.install_name else os.path.basename(self.pkg_path).split("-")[0]
+        # non-capture group matches on optional 64 char hex string
+        # capture matches one or more word and/or whitespace chars (non-greedy)
+        # non-capture positive lookahead assertion to indicate match will be found before version or dashes
+        name_only_pattern = re.compile(r"(?:[a-f0-9]{64}--)?([\w\s]+?)(?=\s+\d+\.\d+|[.-])")
+        if self.install_name:
+            log.debug(f"regex searching {name_only_pattern} against {self.install_name}\nOutput is below:")
+            # If PKG/DMG name found, strip out version and other metadata
+            log.debug(re.search(name_only_pattern, self.install_name))
+            try:
+                self.install_name = re.search(name_only_pattern, self.install_name).group(1)
+            except AttributeError as err:
+                log.debug(f"Installer name {self.install_name} couldn't be filtered further; leaving unchanged\n{err}")
+        # If no name returned from above, run PKG basename thru re filter to approximate a usable name
+        self.pkg_path_name = (
+            None if self.install_name else re.search(name_only_pattern, os.path.basename(self.pkg_path)).group(1)
+        )
         if lookup_again is True:
             self._populate_package_map()
             self._set_defaults_enforcements()

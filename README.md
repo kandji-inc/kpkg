@@ -11,6 +11,7 @@ Standalone tool for programmatic management of Kandji Custom Apps
   - [Kandji Packages Config](#kandji-packages-config)
   - [Command Line Flags](#command-line-flags)
   - [Package Map](#package-map)
+  - [Brew Cron](#brew-cron)
 - [Runtime Considerations](#runtime-considerations)
   - [Supported Custom Apps](#supported-custom-apps)
   - [Enforcements](#enforcements)
@@ -21,6 +22,7 @@ Standalone tool for programmatic management of Kandji Custom Apps
   - [Slack Token Setup](#slack-token-setup)
   - [config.json](#configjson)
   - [package_map.json](#package_mapjson)
+  - [brew_cron.json](#brew_cronjson)
   - [kpkg Flags](#kpkg-flags)
   - [kpkg-setup Flags](#kpkg-setup-flags)
   - [Audit/Enforcement Examples](#audit-enforcement-examples)
@@ -108,7 +110,7 @@ google-chrome
 
 ```
 2024-04-15 04:39:34 PM [MacBook Pro]: INFO: brew fetching 'coteditor'...
-2024-04-15 04:39:36 PM [MacBook Pro]: INFO: Downloaded 'coteditor' to '/Users/noah/Library/Caches/Homebrew/downloads/2f159e4270397f68161b6a891ab35a32085f02dbfef6c61191251ccd0278e2eb--CotEditor_4.7.4.dmg'
+2024-04-15 04:39:36 PM [MacBook Pro]: INFO: Downloaded 'coteditor' to '~/Library/Caches/Homebrew/downloads/2f159e4270397f68161b6a891ab35a32085f02dbfef6c61191251ccd0278e2eb--CotEditor_4.7.4.dmg'
 2024-04-15 04:39:36 PM [MacBook Pro]: INFO: Processing '2f159e4270397f68161b6a891ab35a32085f02dbfef6c61191251ccd0278e2eb--CotEditor_4.7.4.dmg'
 2024-04-15 04:39:37 PM [MacBook Pro]: INFO: Located matching map value 'com.coteditor.CotEditor' from PKG/DMG
 2024-04-15 04:39:38 PM [MacBook Pro]: INFO: Beginning file upload of '2f159e4270397f68161b6a891ab35a32085f02dbfef6c61191251ccd0278e2eb--CotEditor_4.7.4.dmg'...
@@ -168,6 +170,60 @@ Configuration files are stored in `~/Library/KandjiPackages`
 
 > [!TIP]
 > Running `kpkg-setup -m` exports a .csv containing Custom App names and Self Service categories to help populate `package_map.json`
+
+### Brew Cron
+
+- Version `1.1.0` introduces new functionality to configure/create a background service (macOS LaunchAgent) to periodically execute `kpkg -b` against a defined list of brew casks
+  - A list of available Homebrew casks can be found [here](https://formulae.brew.sh/cask)
+  - Service runtime logs to `~/Library/KandjiPackages/kpkg.log`, same as ad hoc `kpkg` executions
+- To get started, run `kpkg-setup -b`, which:
+  - Creates/loads a config file (`brew_cron.json`) defined with a list of Homebrew casks and runtime frequency
+  - Populates from config and writes an agent to `~/Library/LaunchAgents/io.kandji.kpkg.brewcron.plist`
+    - The LaunchAgent is immediately loaded, then runs every `n` hours thereafter to check for Homebrew cask updates
+      - If the brew source package matches the Kandji installer (by shasum), `kpkg` skips the upload
+      - If a change is detected, `kpkg` uploads the new version to Kandji (and updates the accompanying audit script if enabled)
+- If `~/Library/KandjiPackages/brew_cron.json` is missing, an interactive setup first asks how often to run (in hours), and which casks to monitor
+
+```
+04:59:44 PM : brew_cron.json config is missing or invalid
+Create it now? (Y/N):y
+Enter value for how frequently cron brew should run (in hours) (e.g. 1 – 168):
+8
+04:59:47 PM : kpkg brew cron will run every 8 hours
+
+Enter value for brew casks which should run, comma-separated (e.g. google-chrome,firefox,slack):
+grandperspective,suspicious-package
+
+04:59:55 PM : Confirmed below casks are valid:
+
+grandperspective,suspicious-package
+
+04:59:56 PM : Wrote service with above casks scoped to ~/Library/LaunchAgents/io.kandji.kpkg.brewcron.plist
+04:59:56 PM : Successfully bootstrapped ~/Library/LaunchAgents/io.kandji.kpkg.brewcron.plist — service is now active
+04:59:56 PM : Run the following to monitor progress (CTRL+C to quit):
+tail -f ~/Library/KandjiPackages/kpkg.log
+```
+
+> [!NOTE]
+> Once the service is activated via the LaunchAgent, you may see a Notification Center message display `"zsh" is an item that can run in the background.`
+
+- If an existing config is present at `~/Library/KandjiPackages/brew_cron.json` when running `kpkg-setup -b`, the LaunchAgent is refreshed with those values and reloaded
+  - [See below](#brew_cronjson) for a sample config
+
+```
+05:00:30 PM : Reading config from ~/Library/KandjiPackages/brew_cron.json
+05:00:31 PM : Confirmed all casks are valid
+05:00:31 PM : Wrote agent to ~/Library/LaunchAgents/io.kandji.kpkg.brewcron.plist
+05:00:31 PM : Bootstrapped ~/Library/LaunchAgents/io.kandji.kpkg.brewcron.plist
+05:00:31 PM : Run the following to monitor progress (CTRL+C to quit):
+tail -f ~/Library/KandjiPackages/kpkg.log
+```
+
+- Interactively add additional casks to `brew_cron.json` by calling `kpkg-setup -b -a`
+- You can also add/remove casks by editing `brew_cron.json` directly
+  - **NOTE**: If `brew_cron.json` is directly modified, run `kpkg-setup -b` to reload the LaunchAgent with the updated config
+- To uninstall the Brew Cron service (unload and remove LaunchAgent), run `kpkg-setup -b -u`
+  - This does **not** remove `brew_cron.json`, so the service can be reloaded at any time by re-running `kpkg-setup -b`
 
 ## Runtime Considerations
 
@@ -292,7 +348,7 @@ Instructions for creating a Kandji API token [can be found here](https://support
 | `slack.enabled`        |`bool`<br />               | Toggle on/off Slack notifications for runtime | `true` |
 | `slack.webhook_name`        | *Name of Slack token in keystore* | Token name with value `hooks.slack.com/services` | `SLACK_TOKEN` |
 | `token_keystore`      | **`environment:`**`bool`<br />**`keychain:`**`bool` | Keystore source(s) to retrieve tokens | `false` <br /> `false` |
-| `use_package_map`      | `bool`                      | Use recipe --> Kandji mapping from `package_map.json`       | `false` |
+| `use_package_map`      | `bool`                      | Use PKG ID --> Kandji mapping from `package_map.json`       | `false` |
 
 #### Optional Keys
 | Optional Key          | Accepted Values            | Description                                                         | Default |
@@ -374,6 +430,24 @@ Instructions for creating a Kandji API token [can be found here](https://support
 }
 ```
 
+### brew_cron.json
+
+#### Example Brew Cron Conf
+```json
+{
+  "brew_casks" : [
+    "affinity-photo",
+    "aws-vpn-client",
+    "firefox",
+    "grandperspective",
+    "iterm2",
+    "suspicious-package",
+    "vlc"
+  ],
+  "every_n_hours" : 8
+}
+```
+
 ### kpkg Flags
 `kpkg` must be called with one of `-p`/`-b` to specify local PKG/DMG or Homebrew cask name.
 
@@ -411,17 +485,20 @@ options:
 See below for full usage guide:
 
 ```
-Usage: kpkg-setup [-h/--help|-c/--config|-i/--idfind|-m/--map|-r/--reset]
+Usage: kpkg-setup [-h/--help|-a/--addcask|-b/--brewcron|-c/--config|-i/--idfind|-m/--map|-r/--reset|-u/--uninstall]
 
 Conducts prechecks to ensure all required dependencies are available prior to runtime.
 Once confirmed, reads and prompts to populate values in config.json if any are invalid.
 
 Options:
 -h, --help                       Show this help message and exit
+-a, --addcask                    Prompt to add new cask values to brew_cron.json; write updated values to LaunchAgent and reload (must be paired with -b/--brewcron)
+-b, --brewcron                   Prompt to populate brew_cron.json (if missing) or read in existing config; write provided values to LaunchAgent and load
 -c, --config                     Configure config.json with required values for runtime (don't store secrets)
 -i, --idfind                     Populate to CSV names and ids of provided installer media (accepts .pkg/dmg or dir of .pkgs/dmgs)
 -m, --map                        Populate to CSV usable values for package_map.json
--r, --reset                      Prompts to overwrite any configurable variables
+-r, --reset                      Prompt to reset/overwrite configurable variables/secrets
+-u, --uninstall                  Unload and remove agent from ~/Library/LaunchAgents/io.kandji.kpkg.brewcron.plist (must be paired with -b/--brewcron)
 ```
 
 ### Audit Enforcement Examples

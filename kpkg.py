@@ -436,6 +436,7 @@ if __name__ == "__main__":
     log.info(format_stdout(f"Kandji Packages ({vers})"))
 
     for pkg in packages:
-        log.info(f"Processing '{os.path.basename(pkg)}'")
+        log.info(f"\nProcessing '{os.path.basename(pkg)}'")
         kpkg = KPKG(path_to_pkg=pkg.strip(), parent_dir=parent_dir)
         kpkg.main()
+    log.info(format_stdout("Kandji Packages Runtime Complete"))
