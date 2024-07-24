@@ -177,7 +177,9 @@ class Utilities:
         else:
             error_body = f"`{self.custom_app_name}`/`{self.pkg_name}` failed to {action}: `{response}`"
             if http_code == 401:
-                error_body += "\nValidate token is set with appropriate permissions and try again"
+                error_body += "\nValidate token is set and try again"
+            elif http_code == 403:
+                error_body += "\nValidate token permissions and try again"
             log.fatal(f"Failed to {action.capitalize()} Custom App (HTTP {http_code})\n{error_body}")
             self.slack_notify(
                 "ERROR",
@@ -196,7 +198,7 @@ class Utilities:
         Searches for our keys and updates them with assigned vals
         Creates a backup file before modification"""
         epoch_now = datetime.now().strftime("%s")
-        with FileInput(files=self.audit_script_path, inplace=True, backup=".bak") as f:
+        with FileInput(files=self.audit_script_path, inplace=True, backup=".bak", encoding="utf-8") as f:
             for line in f:
                 line = line.rstrip()  # noqa: PLW2901
                 if "APP_NAME=" in line and hasattr(self, "app_name"):

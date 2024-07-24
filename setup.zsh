@@ -1,5 +1,6 @@
 #!/bin/zsh
 # Created 02/05/24; NRJA
+# Updated 07/18/24; NRJA
 ################################################################################################
 # License Information
 ################################################################################################
@@ -29,21 +30,24 @@
 #############################
 
 # Provide arg support to only set config file
-zparseopts -D -E -a opts h -help c -config i -idfind m -map r -reset
+zparseopts -D -E -a opts h -help a -addcask b -brewcron c -config i -idfind m -map r -reset u -uninstall
 # Set args for help and show message
 if (( ${opts[(I)(-h|--help)]} )); then
     /bin/cat <<EOF
-Usage: kpkg-setup [-h/--help|-c/--config|-i/--idfind|-m/--map|-r/--reset]
+Usage: kpkg-setup [-h/--help|-a/--addcask|-b/--brewcron|-c/--config|-i/--idfind|-m/--map|-r/--reset|-u/--uninstall]
 
 Conducts prechecks to ensure all required dependencies are available prior to runtime.
 Once confirmed, reads and prompts to populate values in config.json if any are invalid.
 
 Options:
 -h, --help                       Show this help message and exit
+-a, --addcask                    Prompt to add new cask values to brew_cron.json; write updated values to LaunchAgent and reload (must be paired with -b/--brewcron)
+-b, --brewcron                   Prompt to populate brew_cron.json (if missing) or read in existing config; write provided values to LaunchAgent and load
 -c, --config                     Configure config.json with required values for runtime (don't store secrets)
 -i, --idfind                     Populate to CSV names and ids of provided installer media (accepts .pkg/dmg or dir of .pkgs/dmgs)
 -m, --map                        Populate to CSV usable values for package_map.json
--r, --reset                      Prompts to overwrite any configurable variables
+-r, --reset                      Prompt to reset/overwrite configurable variables/secrets
+-u, --uninstall                  Unload and remove agent from ~/Library/LaunchAgents/io.kandji.kpkg.brewcron.plist (must be paired with -b/--brewcron)
 EOF
     exit 0
 fi
@@ -52,8 +56,9 @@ fi
 ########## VARIABLES #########
 ##############################
 
-# Get username
+# Get username and UID
 user=$(/usr/bin/stat -f%Su /dev/console)
+uid=$(/usr/bin/stat -f%Du /dev/console)
 
 # Get local dir name
 dir=$(dirname $(realpath ${ZSH_ARGZERO}))
@@ -68,17 +73,32 @@ config_file="${abs_dir}/${config_name}"
 version_path=$(find "${abs_dir}" -name VERSION)
 version=$(cat "${version_path}")
 
+# Set service name and pathing for LaunchAgent
+sv_name="io.kandji.kpkg.brewcron"
+user_agents="/Users/${user}/Library/LaunchAgents"
+kpkg_brewcron="${user_agents}/${sv_name}.plist"
+# Hardcoded filename for configs
+bc_config_name="brew_cron.json"
+bc_config_file="${abs_dir}/${bc_config_name}"
+
 # RE matching for Kandji API URL
 kandji_api_re='^[A-Za-z0-9]+\.api(\.eu)?\.kandji\.io$'
 # xdigit is an RE pattern match for valid hex chars
 kandji_token_re='[[:xdigit:]]{8}(-[[:xdigit:]]{4}){3}-[[:xdigit:]]{12}'
-slack_webhook_re='https://hooks.slack.com/services/[[:alnum:]]{9}/[[:alnum:]]{11}/[[:alnum:]]{24}'
+slack_webhook_re='https://hooks.slack.com/services/[[:alnum:]]{9,11}/[[:alnum:]]{11}/[[:alnum:]]{24}'
+# Matching to confirm hours input is valid
+bc_frequency_hours_re='[[:digit:]]{1,4}'
+# alphanumeric strings may contain hyphens, separated by commas
+bc_casks_input_re='^([[:alnum:]]+(-[[:alnum:]]+)*)(\s*,\s*[[:alnum:]]+(-[[:alnum:]]+)*)*$'
 
 # Get login keychain for user
 user_keychain_path=$(security login-keychain | xargs)
 
 # Assoc. arr to store PKG/DMG names and IDs
 declare -A install_media_ids
+
+# Arr to hold cask names
+declare -a casks
 
 ##############################
 ########## FUNCTIONS #########
@@ -111,6 +131,7 @@ function determine_media_type() {
     media_path="${1}"
 
     # See man zshmisc under ALTERNATE FORMS FOR COMPLEX COMMANDS
+    # shellcheck disable=SC1050,SC1141
     if (hdiutil imageinfo -format "${media_path}" >/dev/null 2>&1) media_type="dmg"
     if (installer -pkginfo -pkg "${media_path}" >/dev/null 2>&1) media_type="pkg"
     if [[ -z ${media_type} ]]; then
@@ -323,8 +344,12 @@ function prompt_for_value() {
     key_name=${1}
     example_val=${2}
     echo
-    read "CONFIG_VALUE?Enter value for ${key_name} (e.g. ${example_val}):
+    # Disable beautysh read formatting (indents)
+    # @formatter:off
+    read "CONFIG_VALUE?
+Enter value for ${key_name} (e.g. ${example_val}):
 "
+    # @formatter:on
     if [[ -n ${CONFIG_VALUE} ]]; then
         if grep -q -w -E "${value_regex_pattern}" <<< "${CONFIG_VALUE}"; then
             return 0
@@ -354,8 +379,11 @@ function prompt_for_value() {
 ##############################################
 function prompt_for_secret() {
     echo
+    # Disable beautysh read formatting (indents)
+    # @formatter:off
     read -s "BEARER_TOKEN?Enter ${token_type} token value:
 "
+    # @formatter:on
     if [[ -n ${BEARER_TOKEN} ]]; then
         if grep -q -w -E "${secret_regex_pattern}" <<< "${BEARER_TOKEN}"; then
             return 0
@@ -423,9 +451,16 @@ function check_store_env() {
                 else
                     dotfile_name=".profile"
                 fi
+                dotfile_path="/Users/${user}/${dotfile_name}"
                 # Export token, write to dotfile
+                if grep -q "export ${token_name}=" "${dotfile_path}" >/dev/null 2>&1; then
+                    # Update existing token value if present
+                    sed -i '' "s|export ${token_name}=.*|export ${token_name}=${BEARER_TOKEN}|g" "${dotfile_path}"
+                else
+                    echo "export ${token_name}=${BEARER_TOKEN}" >> "${dotfile_path}"
+                fi
                 # shellcheck disable=SC1090
-                echo "export ${token_name}=${BEARER_TOKEN}" >> "/Users/${user}/${dotfile_name}" && source "/Users/${user}/${dotfile_name}"
+                source "${dotfile_path}"
                 check_store_env
             fi
         else
@@ -478,13 +513,13 @@ function check_store_keychain() {
                 prompt_for_secret "${token_type}"
                 echo "\n$(date +'%r') : Adding token to login keychain"
                 echo "$(date +'%r') : Enter your password if prompted to unlock keychain"
-                if ! security unlock-keychain -u; then
+                if ! security unlock-keychain -u ${user_keychain_path}; then
                     echo "$(date +'%r') : ERROR: Unable to unlock keychain; exiting"
                     exit 1
                 fi
                 security add-generic-password -U -a "kpkg" -s "${token_name}" -w "${BEARER_TOKEN}" \
-                -T "/usr/bin/security" -T "/Users/${user}/Library/KandjiPackages/kpkg" \
-                -T "/Users/${user}/Library/KandjiPackages/setup.zsh" ${user_keychain_path}
+                    -T "/usr/bin/security" -T "/Users/${user}/Library/KandjiPackages/kpkg" \
+                    -T "/Users/${user}/Library/KandjiPackages/setup.zsh" ${user_keychain_path}
                 check_store_keychain
             fi
         else
@@ -517,8 +552,11 @@ function prompt_store_secret() {
 function prompt_validate_pkg_pkgs() {
 
     # Prompt for PKG path
+    # Disable beautysh read formatting (indents)
+    # @formatter:off
     read "provided_path?Drag 'n' drop a .pkg/dmg (or directory of .pkg/dmgs) for ID lookup:
 "
+    # @formatter:on
     ftype=$(determine_media_type "${provided_path}")
     # Check if provided path is a directory
     if [[ -d "${provided_path}" ]]; then
@@ -528,7 +566,7 @@ function prompt_validate_pkg_pkgs() {
         for media in "${(f)$(find "${provided_path}" -type f)}" ; do
             get_install_media_id "${media}"
         done
-    # Validate file type to ensure one of PKG/DMG provided
+        # Validate file type to ensure one of PKG/DMG provided
     elif ! grep -q 'dmg\|pkg' <<< "${ftype}"; then
         echo "File ${provided_path} is not valid! Expected valid .pkg or .dmg; got ${ftype}"
         prompt_validate_pkg_pkgs
@@ -775,6 +813,279 @@ function populate_values_for_map() {
     open "${abs_dir}/package_map_values.csv"
 }
 
+
+##############################################
+# Prompts to define periodic runtime in hours
+# Validates assigned value is greater than 0
+# Globals:
+#   bc_frequency_hours_re
+# Assigns:
+#   periodic_hours
+# Returns:
+#   0 if assigned val is greater than 0
+##############################################
+function set_bc_freq() {
+
+    value_regex_pattern=${bc_frequency_hours_re}
+    prompt_for_value "how frequently cron brew should run (in hours)" "1 – 168"
+    periodic_hours=${CONFIG_VALUE}
+
+    if [[ ${periodic_hours} -gt 0 ]]; then
+        echo "$(date +'%r') : kpkg brew cron will run every ${periodic_hours} hours"
+        return 0
+    else
+        echo "\n$(date +'%r') : Provided value did not match expected sequence!"
+        echo "$(date +'%r') : Number of hours should be greater than 0"
+        echo "$(date +'%r') : Validate your input and try again; press CTRL+C to exit"
+        prompt_for_value "how frequently cron brew should run (in hours)" "1 – 168"
+    fi
+}
+
+##############################################
+# Prompts to define a list of brew casks for
+# runtime; strips quotes from input, converts
+# commas to newlines, and assigns to array
+# Confirms at least one cask assigned to arr
+# Globals:
+#   bc_casks_input_re
+# Assigns:
+#   casks
+# Returns:
+#   0 if # of assigned casks greater than 0
+##############################################
+function set_bc_casks() {
+    value_regex_pattern=${bc_casks_input_re}
+    prompt_for_value "brew casks which should run, comma-separated" "google-chrome,firefox,slack"
+    casks_input=${CONFIG_VALUE}
+
+    # Split input into array, removing any quotes
+    casks=("${(f)$(tr -s ', ' '\n' <<< ${casks_input} | sed "s/^\([\"']\)\(.*\)\1\$/\2/g")}")
+    if [[ ${#casks} -gt 0 ]]; then
+        return 0
+    else
+        echo "\n$(date +'%r') : Provided value did not match expected sequence!"
+        echo "$(date +'%r') : Cask names should be comma-separated and unquoted"
+        echo "$(date +'%r') : Validate your input and try again; press CTRL+C to exit"
+        prompt_for_value "brew casks which should run, comma-separated" "google-chrome,firefox,slack"
+    fi
+}
+
+##############################################
+# Creates and populates brew_cron.json config
+# file with runtime frequency and cask names
+# Globals:
+#   bc_config_file
+#   periodic_hours
+#   casks
+# Outputs:
+#   Writes to brew_cron.json
+##############################################
+function create_populate_config() {
+    plutil -create xml1 "${bc_config_file}"
+    plutil -insert every_n_hours -integer ${periodic_hours} -r "${bc_config_file}"
+    plutil -insert brew_casks -array -r "${bc_config_file}"
+    # Sort casks reversed (O), with uniq values (u) and lowercase formatting (:l)
+    for cask in "${(Ou)casks[@]:l}"; do
+        plutil -insert brew_casks.0 -string ${cask} -r "${bc_config_file}"
+    done
+    plutil -convert json -r "${bc_config_file}"
+}
+
+##############################################
+# Prompts user to create a new brew_cron.json
+# config; exits with error if user declines
+# Globals:
+#   bc_config_file
+# Returns:
+#   Exit 1 if no valid config found
+##############################################
+function populate_brew_conf() {
+
+    echo "$(date +'%r') : brew_cron.json config is missing or invalid"
+    if read -q "?Create it now? (Y/N):"; then
+        set_bc_freq
+        set_bc_casks
+        validate_casks
+        create_populate_config
+        echo "$(date +'%r') : Created ${bc_config_file}"
+    else
+        echo "\n$(date +'%r') : CRITICAL: Cannot continue without valid config! Exiting..."
+        exit 1
+    fi
+}
+
+##############################################
+# Updates brew_cron.json config with provided
+# cask names; confirms casks are valid
+# Globals:
+#   bc_config_file
+##############################################
+function update_brew_conf() {
+
+    echo "$(date +'%r') : Will append provided values to brew_cron.json..."
+    set_bc_casks
+    validate_casks
+    echo "$(date +'%r') : Adding above casks to ${bc_config_file}"
+}
+
+##############################################
+# Reads brew_cron.json config; assigns to vars
+# periodic runtime and casks once validated
+# Globals:
+#   bc_config_file
+# Assigns:
+#   casks (appends values to arr)
+#   periodic_hours
+##############################################
+function read_brew_conf() {
+
+    echo "$(date +'%r') : Reading config from ${bc_config_file}"
+
+    # Get count of cask names
+    # Minus 1 to account for 0-based index
+    count=$(("$(plutil -extract brew_casks raw -o - "${bc_config_file}") - 1"))
+
+    # Iter over all casks and append to arr
+    # shellcheck disable=SC2051
+    for i in {0..${count}}; do
+        casks+=$(plutil -extract brew_casks.${i} raw -o - "${bc_config_file}")
+    done
+    validate_casks
+    # Get runtime frequency (in hours)
+    periodic_hours=$(plutil -extract every_n_hours raw -o - "${bc_config_file}")
+
+}
+
+##############################################
+# Runs brew info on provided casks to confirm
+# they are valid; exits with error if not
+# Globals:
+#   casks
+# Returns:
+#   Exit 1 if one or more brew casks invalid
+##############################################
+function validate_casks() {
+    # Confirm all provided casks are valid according to Homebrew
+    brew_out=$(brew info --quiet --casks "${(u)casks[@]}" 2>&1 1>/dev/null )
+    if [[ $? -ne 0 ]]; then
+        echo "\n$(date +'%r') : CRITICAL: One or more cask names were invalid:\n\n${brew_out}"
+        exit 1
+    fi
+    echo "\n$(date +'%r') : Confirmed below casks are valid:\n\n${(ou)casks[@]}\n"
+}
+
+##############################################
+# Converts casks arr into kpkg runtime string
+# Converts periodic runtime into seconds
+# Creates dir at ~/Library/LaunchAgents and
+# creates/updates lagent plist in dir
+# Globals:
+#   casks
+#   kpkg_brewcron
+#   periodic_hours
+#   sv_name
+#   user_agents
+# Outputs:
+#   Writes LaunchAgent to user Library
+##############################################
+function create_bootstrap_agent() {
+
+    # Format casks for kpkg (sort, unique, lowercase)
+    kpkg_fmt_casks=$(printf ' -b %s' ${(ou)casks[@]:l})
+    # Turn hours into seconds
+    periodic_seconds=$((periodic_hours * 3600))
+
+    mkdir -p "${user_agents}"
+
+    /bin/cat > "${kpkg_brewcron}" <<EOF
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+    <plist version="1.0">
+        <dict>
+            <key>Label</key>
+            <string>${sv_name}</string>
+            <key>EnvironmentVariables</key>
+            <dict>
+                <key>PATH</key>
+                <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+            </dict>
+            <key>ProgramArguments</key>
+            <array>
+                <string>zsh</string>
+                <string>-c</string>
+                <string>/usr/local/bin/kpkg${kpkg_fmt_casks}</string>
+            </array>
+            <key>RunAtLoad</key>
+            <true/>
+            <key>StartInterval</key>
+            <integer>${periodic_seconds}</integer>
+        </dict>
+    </plist>
+EOF
+}
+
+##############################################
+# Attempts to bootout LaunchAgent and reports
+# status; if lagent plist exists, removes it
+# Otherwise, warns that file not found
+# Globals:
+#   kpkg_brewcron
+#   sv_name
+#   uid
+# Outputs:
+#   Unloads and removes LaunchAgent from disk
+##############################################
+function bootout_remove_agent() {
+    if ! launchctl bootout "gui/${uid}/${sv_name}" 2>/dev/null; then
+        echo "$(date +'%r') : WARNING: Service not loaded at gui/${uid}/${sv_name}"
+    else
+        echo "$(date +'%r') : Successfully stopped service gui/${uid}/${sv_name}"
+    fi
+    if [[ -f "${kpkg_brewcron}" ]]; then
+        rm -f "${kpkg_brewcron}"
+        echo "$(date +'%r') : Successfully removed ${kpkg_brewcron}"
+    else
+        echo "$(date +'%r') : WARNING: ${kpkg_brewcron} not found"
+    fi
+}
+
+##############################################
+# Sets permissions on LaunchAgent and attempts
+# to bootstrap; if unsuccessful, retries once
+# Prints command to monitor log if desired
+# Globals:
+#   kpkg_brewcron
+#   sv_name
+#   uid
+# Arguments:
+#   retry; ${1} (bool)
+# Outputs:
+#   Updates perms and loads LaunchAgent
+# Returns:
+#   Exit 1 if agent bootstrap fails twice
+##############################################
+function agent_perms_load() {
+
+    retry=${1}
+
+    chmod 644 "${kpkg_brewcron}"
+    chown ${user}:staff "${kpkg_brewcron}"
+    echo "$(date +'%r') : Wrote service with above casks scoped to ${kpkg_brewcron}"
+    if ! launchctl bootstrap "gui/${uid}" "${kpkg_brewcron}" >/dev/null 2>&1; then
+        launchctl bootout "gui/${uid}/${sv_name}" && launchctl bootstrap "gui/${uid}" "${kpkg_brewcron}"
+    fi
+    if launchctl print "gui/${uid}/${sv_name}" >/dev/null 2>&1; then
+        echo "$(date +'%r') : Successfully bootstrapped ${kpkg_brewcron} — service is now active"
+        echo "$(date +'%r') : Run the following to monitor progress (CTRL+C to quit):\ntail -f ~/Library/KandjiPackages/kpkg.log"
+    elif ! ${retry}; then
+        echo "$(date +'%r') : WARNING: Unable to bootstrap ${kpkg_brewcron}... Trying once more"
+        agent_perms_load true
+    else
+        echo "$(date +'%r') : ERROR: Unable to bootstrap ${kpkg_brewcron} (tried twice)... Exiting"
+        exit 1
+    fi
+}
+
 ##############################################
 # Checks config; assigns name of Kandji token
 # and optional Slack token; if Kandji token
@@ -804,9 +1115,50 @@ function main() {
         format_stdout "kpkg Initial Setup"
     fi
 
+    ######################
+    # kpkg Brew Cron
+    ######################
+    # Ensure any passed -a/-u flags are used with -b
+    if [[ -n $(printf '%s\n' "${(@)opts}" | grep -- '-a\|-u') ]] && [[ -z $(printf '%s\n' "${(@)opts}" | grep -- '-b') ]]; then
+        echo "$(date +'%r') : ERROR: Invalid flag combination: -b must be specified alongside -a/-u"
+        exit 1
+    elif [[ $(printf '%s\n' "${(@)opts}" | grep -c -- '-a\|-u') -ge 2 ]]; then
+        echo "$(date +'%r') : ERROR: Invalid flag combination: -a and -u cannot be passed together"
+        exit 1
+    fi
+
+    if (( ${opts[(I)(-b|--brewcron)]} )); then
+        if (( ${opts[(I)(-u|--uninstall)]} )); then
+            format_stdout "kpkg Brew Cron Uninstallation"
+            bootout_remove_agent
+            exit 0
+        fi
+        format_stdout "kpkg Brew Cron Starting"
+        if ! brew --version >/dev/null 2>&1; then
+            echo "$(date +'%r') : ERROR: Confirm Homebrew is installed/available in PATH and try again..."
+            exit 1
+        fi
+        if ! plutil -type brew_casks "${bc_config_file}" >/dev/null 2>&1; then
+            populate_brew_conf
+        else
+            if (( ${opts[(I)(-a|--addcask)]} )); then
+                update_brew_conf
+            fi
+            read_brew_conf
+            create_populate_config
+        fi
+        create_bootstrap_agent
+        agent_perms_load false
+        format_stdout "kpkg Brew Cron Complete"
+        exit 0
+    fi
+
     # Read in config and assign values to vars
     read_config
 
+    ######################
+    # kpkg Install ID
+    ######################
     if (( ${opts[(I)(-i|--idfind)]} )); then
         format_stdout "kpkg Install ID Lookup Starting"
         prompt_validate_pkg_pkgs
@@ -814,6 +1166,9 @@ function main() {
         exit 0
     fi
 
+    ######################
+    # kpkg Mapping
+    ######################
     if (( ${opts[(I)(-m|--map)]} )); then
         format_stdout "kpkg Mapping Starting"
         populate_values_for_map
@@ -821,6 +1176,9 @@ function main() {
         exit 0
     fi
 
+    ######################
+    # kpkg Reset
+    ######################
     if (( ${opts[(I)(-r|--reset)]} )); then
         format_stdout "kpkg Reset Starting"
         reset_kandji_url=false
@@ -832,6 +1190,9 @@ function main() {
         exit 0
     fi
 
+    ######################
+    # kpkg Config Only
+    ######################
     # If flag is set for config-only, don't offer to store secrets
     if (( ${opts[(I)(-c|--config)]} )); then
         format_stdout "kpkg Config Only"
