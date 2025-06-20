@@ -402,7 +402,7 @@ class KPKG(Configurator, Utilities):
 #### BODY ####
 ##############
 
-if __name__ == "__main__":
+def main():
     if os.geteuid() == 0:
         log.fatal("kpkg should NOT be run as superuser! Exiting...")
         sys.exit(1)
@@ -440,3 +440,6 @@ if __name__ == "__main__":
         kpkg = KPKG(path_to_pkg=pkg.strip(), parent_dir=parent_dir)
         kpkg.main()
     log.info(format_stdout("Kandji Packages Runtime Complete"))
+
+if __name__ == "__main__":
+    main()

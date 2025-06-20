@@ -1,0 +1,22 @@
+[project]
+name = "kpkg"
+version = "1.1.0"
+dependencies = [
+    "requests",
+    "pip",
+]
+
+[build-system]
+requires = ["setuptools > 77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+script-files = ["./kpkg-setup"]
+py-modules = ["kpkg"]
+packages = ["helpers"]
+
+[project.scripts]
+kpkg = "kpkg:main"
+
+[dependency-groups]
+dev = ["build"]

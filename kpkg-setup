@@ -517,9 +517,10 @@ function check_store_keychain() {
                     echo "$(date +'%r') : ERROR: Unable to unlock keychain; exiting"
                     exit 1
                 fi
+                which_kpkg="$(which kpkg)"
                 security add-generic-password -U -a "kpkg" -s "${token_name}" -w "${BEARER_TOKEN}" \
-                    -T "/usr/bin/security" -T "/Users/${user}/Library/KandjiPackages/kpkg" \
-                    -T "/Users/${user}/Library/KandjiPackages/setup.zsh" ${user_keychain_path}
+                    -T "/usr/bin/security" -T "${which_kpkg}" \
+                    -T "$abs_dir/kpkg-setup" ${user_keychain_path}
                 check_store_keychain
             fi
         else

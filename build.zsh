@@ -190,13 +190,13 @@ user_dir=$(dscl /Local/Default -read "/Users/${user}" NFSHomeDirectory | /usr/bi
 mkdir -p "${user_dir}/Library/KandjiPackages"
 unzip -o "/tmp/kpkg.zip" -d "${user_dir}/Library"
 
-rm -f "${user_dir}/Library/KandjiPackages/"{setup.zsh,audit_app_and_version.zsh}
+rm -f "${user_dir}/Library/KandjiPackages/"{kpkg-setup,audit_app_and_version.zsh}
 
-mv -n "/tmp/"{setup.zsh,package_map.json,config.json,audit_app_and_version.zsh} "${user_dir}/Library/KandjiPackages"
+mv -n "/tmp/"{kpkg-setup,package_map.json,config.json,audit_app_and_version.zsh} "${user_dir}/Library/KandjiPackages"
 chown -f -R "${user}" "${user_dir}/Library/KandjiPackages"
 mkdir -p "/usr/local/bin"
 ln -f -s "${user_dir}/Library/KandjiPackages/kpkg" "/usr/local/bin/kpkg"
-ln -f -s "${user_dir}/Library/KandjiPackages/setup.zsh" "/usr/local/bin/kpkg-setup"
+ln -f -s "${user_dir}/Library/KandjiPackages/kpkg-setup" "/usr/local/bin/kpkg-setup"
 rm -f "/tmp/kpkg.zip"
 
 path_check=$(tr ':' '\n' <<< $(su - "${user}" -c "printenv PATH") | grep -o '^/usr/local/bin$')
@@ -239,7 +239,7 @@ function build_kpkg_pkg() {
     write_postinstall
 
     # Copy kpkg.zip and assorted scripts to Payload
-    cp -R "${dir}/"{kpkg.zip,setup.zsh,package_map.json,config.json,audit_app_and_version.zsh} "${dir}/Payload/tmp"
+    cp -R "${dir}/"{kpkg.zip,kpkg-setup,package_map.json,config.json,audit_app_and_version.zsh} "${dir}/Payload/tmp"
 
     echo "Creating kpkg-${version}.pkg"
     if [[ $(uname) == "Darwin" ]]; then
