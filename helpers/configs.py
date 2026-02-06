@@ -276,7 +276,7 @@ class Configurator:
             sys.exit(1)
 
         # Assign tenant URL
-        self.tenant_url = self.kandji_api_url.replace(".api.", ".")
+        self.tenant_url = self.kandji_api_url.replace(".api.", ".").replace("kandji.io", "iru.com")
         # Assign API domain
         self.kandji_api_prefix = os.path.join(self.kandji_api_url, "api", "v1")
         # Define API endpoints
