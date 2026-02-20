@@ -269,14 +269,25 @@ class Configurator:
         self.kandji_api_url = self._ensure_https(self.kandji_api_url)
         self.headers = {"Content-Type": "application/json"}
         # Confirm provided Kandji URL is valid
-        kandji_test_url = self.kandji_api_url.replace("api", "web-api")
-        response = requests.get(url=kandji_test_url, headers=self.headers)
-        if "tenantNotFound" in response.text:
-            log.fatal(f"Provided Kandji URL '{self.kandji_api_url}' appears invalid! Cannot upload...")
+        migration_check_url = self.kandji_api_url.replace(
+            "api.kandji.io",
+            "gateway.kandji.io/main-backend/app/v1/company/auth-migration-status",
+        )
+        try:
+            response = requests.get(url=migration_check_url, headers=self.headers)
+            migration_data = response.json()
+        except (requests.RequestException, ValueError):
+            migration_data = {}
+
+        if "tenantNotFound" in str(migration_data.values()):
+            log.fatal(f"ERROR: Provided Kandji URL {self.kandji_api_url} appears invalid! Cannot upload...")
             sys.exit(1)
 
-        # Assign tenant URL
-        self.tenant_url = self.kandji_api_url.replace(".api.", ".").replace("kandji.io", "iru.com")
+        # Assign tenant URL based on migration status
+        if migration_data.get("auth_migration_status") in ("STARTED", "COMPLETED"):
+            self.tenant_url = self.kandji_api_url.replace(".api.kandji.io", ".iru.com")
+        else:
+            self.tenant_url = self.kandji_api_url.replace(".api.", ".")
         # Assign API domain
         self.kandji_api_prefix = os.path.join(self.kandji_api_url, "api", "v1")
         # Define API endpoints
